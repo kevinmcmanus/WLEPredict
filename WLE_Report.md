@@ -5,10 +5,7 @@ date: "March 21, 2016"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-#rmarkdown::render(clean = FALSE)
-```
+
 
 # Synopsis
 This paper constructs four models to predict how well test subjects perform a specific excercise.
@@ -27,7 +24,8 @@ See Appendix 1 for the R code that downloads the training and test data sets int
 
 The R command below will load the training data set into the current R session.
 The training data file has many divide by zero strings and missing values so those are mapped to the value `NA`.
-```{r, eval=TRUE}
+
+```r
 training <- read.csv("pml-training.csv", na.strings = c("NA","#DIV/0!",""))
 ```
 
@@ -41,7 +39,8 @@ The study authors built features using 8 summary measures: min, max, mean, stand
 In interest of time, this study uses just the mean of each sensors' yaw, roll, pitch and total acceleration readings.
 
 The following R code reduces the data to the means within the num_window for roll, pitch, yaw and total acceleration for the 4 sensor locations: forearm, arm, belt and dumbbell:
-```{r}
+
+```r
 #summarize the data within the windows
 win.means = aggregate(data=training,
       cbind(roll_dumbbell, pitch_dumbbell, yaw_dumbbell, total_accel_dumbbell,
@@ -52,13 +51,18 @@ win.means = aggregate(data=training,
 dim(win.means)
 ```
 
+```
+## [1] 858  19
+```
+
 ## Partitioning the Validation Data
 Further partitioning of the training data.frame, now reduced into the `win.means` data.frame allows us to  avoid over-fitting and preserves our ability to estimate out-of-sample prediction accuracy.
 Essentially, we'll break the `win.means` data into two pieces, estimate four machine learning models on the first piece and validate the four models against the second piece.
 Notice in this estimate/validate cycle, the real test data set is left untouched and all of the validation is performed on a subset of the training data.
 
 Here's the R code to form the partitions:
-```{r, warning=FALSE, message=FALSE}
+
+```r
 library(caret)
 
 set.seed(1234)
@@ -69,6 +73,14 @@ win.train <- win.means[inTrain,]
 win.val <- win.means[-inTrain,]
 
 dim(win.train); dim(win.val)
+```
+
+```
+## [1] 688  19
+```
+
+```
+## [1] 170  19
 ```
 
 # Exploratory Data Analysis
@@ -89,23 +101,7 @@ Given that total acceleration by itself won't predict classe, there must be some
 We'll explore these interactions in the next section.
 See Appendix 2 for the R code that produces Figure 1.
 
-```{r Figure1, echo=FALSE, fig.width=12}
-library(ggplot2)
-
-plothist <- function(){
-  
-  df = data.frame(where = rep(c("Belt","Dumbbell","Forearm","Arm"), each=nrow(win.train)),
-                  classe = rep(win.train$classe, 4),
-                  val = c(win.train$total_accel_belt, win.train$total_accel_dumbbell,
-                          win.train$total_accel_forearm, win.train$total_accel_arm))
-  ggplot(aes(val, fill=classe), data=df) +
-    facet_grid(.~where, scales="free")+
-    geom_density(alpha=0.3) +
-    labs(x="Total Acceleration",title="Figure 1: Acceleration Density Plot at Four Sensor Locations")
-}
-
-plothist()
-```
+<img src="WLE_Report_files/figure-html/Figure1-1.png" title="" alt="" width="1152" />
 
 # Model Selection
 The goal of this exercise is to predict from the sensor readings in which of the 5 methods the user is doing the arm curl.
@@ -118,24 +114,24 @@ To do accomplish this we will first create a formula string for use in all train
 
 Appendix 3 contains R code to build up the formula string that we will use in each of the model training runs.
 Only the resulting string in the workspace variable `fmla` is shown here for brevity:
-```{r FMLA, echo=FALSE}
-locs = c("arm", "belt", "forearm","dumbbell") # sensor locations
-meas = c("pitch","roll", "yaw", "total_accel" ) # sensor summary measures
 
-## create list of column names, measures by location
-vnames = paste( rep(meas,length(locs)), rep(locs, each=length(meas)), sep="_")
 
-##build up a formula to pass to subsequent train invocations
-fmla <- as.formula(paste("classe ~ ", paste(vnames, collapse= " + ")))
-```
-```{r}
+```r
 print(fmla)
+```
+
+```
+## classe ~ pitch_arm + roll_arm + yaw_arm + total_accel_arm + pitch_belt + 
+##     roll_belt + yaw_belt + total_accel_belt + pitch_forearm + 
+##     roll_forearm + yaw_forearm + total_accel_forearm + pitch_dumbbell + 
+##     roll_dumbbell + yaw_dumbbell + total_accel_dumbbell
 ```
 
 ## Fit the Models
 The R code below fits models using the four methods using the training partition (as opposed to the validation partition) of the Training dataset.
 It stores the fitted models in a list variable called `modfits` which is indexed by the training method.
-```{r, warning=FALSE, message=FALSE}
+
+```r
 #model types
 methods=c("rpart","rf","lda", "nb")
 f<-function(x)train(fmla, data=win.train, method=x)
@@ -148,7 +144,8 @@ names(modfits)=methods
 ## Generate Confusion Matrices and Collect Accuracy Measures
 Using the validation partition of the Training dataset, this code computes Confusion Matrices for each of the four fitted models.
 It then retrieves the Accuracy measure from each Confustion Matrix and stores the measure in the variable `acc`.
-```{r, warning=FALSE, message=FALSE}
+
+```r
 #generate confusion matrices for each of the four models
 cfm <- function(x){confusionMatrix(predict(x, newdata=win.val), win.val$classe)}
 cfms <- lapply(modfits, cfm)
@@ -159,24 +156,52 @@ acc <- sapply(cfms, getaccuracy)
 ```
 
 ## Examine Each Model's Accuracy Result
-Figure 2 below shows the Accuracy results for each of the four methods.  As the Figure shows, the Random Forest method has by far the greatest acurracy of `r round(acc["rf.Accuracy"],3)`.
+Figure 2 below shows the Accuracy results for each of the four methods.  As the Figure shows, the Random Forest method has by far the greatest acurracy of 0.865.
 The R code for this plot is in Appendix 4.
 
-```{r Figure2, echo=FALSE, warning=FALSE, message=FALSE}
-dacc=data.frame(method=methods, accuracy=acc)
-ggplot(data=dacc, aes(x=method,y=accuracy))+
-  geom_bar(stat="identity",fill="red", alpha=0.5)+
-  ylim(0,1)+
-  labs(title = "Figure 2: Accuracy Measures for Different Tree Models")
-```
+<img src="WLE_Report_files/figure-html/Figure2-1.png" title="" alt="" width="672" />
 
 Here is the Confusion Matrix for the Random Forest model.  It appears as if the model predicts classe A very accurately (doing the Arm Curl exercise correctly) and which of the four incorrect ways (classes B, C, D and E) not as well.
-```{r}
+
+```r
 cfms["rf"]$rf$table
 ```
+
+```
+##           Reference
+## Prediction  A  B  C  D  E
+##          A 47  6  0  2  0
+##          B  1 24  1  1  4
+##          C  0  2 27  1  0
+##          D  0  0  1 23  1
+##          E  0  1  1  1 26
+```
 Below is the relative importance of the predictors:
-```{r}
+
+```r
 varImp(modfits[["rf"]])
+```
+
+```
+## rf variable importance
+## 
+##                      Overall
+## roll_belt            100.000
+## roll_dumbbell         64.077
+## total_accel_belt      56.177
+## yaw_belt              55.934
+## pitch_forearm         54.917
+## pitch_belt            47.089
+## total_accel_dumbbell  39.960
+## pitch_dumbbell        32.779
+## yaw_dumbbell          31.207
+## roll_arm              23.997
+## roll_forearm          14.092
+## total_accel_arm        8.842
+## total_accel_forearm    8.623
+## yaw_arm                6.585
+## yaw_forearm            6.079
+## pitch_arm              0.000
 ```
 
 # Predictions with the Test Data
@@ -185,9 +210,15 @@ And now...the moment we've all be waiting for: using the Test data set to make t
 In the previous section, the Random Forest model exhibited the highest accurary in predicting the validation partition of the training data set.
 So that will be the model that we will use in making predictions from the Testing data set.
 The R code below loads in the Test data set and provides it as input to the Random Forest model.
-```{r}
+
+```r
 testing <- read.csv("pml-testing.csv", na.strings = c("NA","#DIV/0!",""))
 predict(modfits[["rf"]], newdata = testing)
+```
+
+```
+##  [1] C A A A A E D D A A A C E A E E A B B B
+## Levels: A B C D E
 ```
 
 There you have it!!
@@ -208,7 +239,8 @@ Paper is [here.](http://groupware.les.inf.puc-rio.br/har#wle_paper_section#ixzz4
 ## Appendix 1: Download the Data Sets
 
 These commands will download the training and test data sets into the current working directory.
-```{r, eval=FALSE}
+
+```r
 netpath <- "https://d396qusza40orc.cloudfront.net/predmachlearn"
 
 f <- "pml-testing.csv"
@@ -220,13 +252,44 @@ download.file(paste(netpath,f,sep = "/"),destfile = f)
 
 # Appendix 2: R Code for Figure 1
 
-```{r Figure1, eval=FALSE}
+
+```r
+library(ggplot2)
+
+plothist <- function(){
+  
+  df = data.frame(where = rep(c("Belt","Dumbbell","Forearm","Arm"), each=nrow(win.train)),
+                  classe = rep(win.train$classe, 4),
+                  val = c(win.train$total_accel_belt, win.train$total_accel_dumbbell,
+                          win.train$total_accel_forearm, win.train$total_accel_arm))
+  ggplot(aes(val, fill=classe), data=df) +
+    facet_grid(.~where, scales="free")+
+    geom_density(alpha=0.3) +
+    labs(x="Total Acceleration",title="Figure 1: Acceleration Density Plot at Four Sensor Locations")
+}
+
+plothist()
 ```
 
 # Appendix 3: R Code to Create Model Formula
-```{r FMLA, eval=FALSE}
+
+```r
+locs = c("arm", "belt", "forearm","dumbbell") # sensor locations
+meas = c("pitch","roll", "yaw", "total_accel" ) # sensor summary measures
+
+## create list of column names, measures by location
+vnames = paste( rep(meas,length(locs)), rep(locs, each=length(meas)), sep="_")
+
+##build up a formula to pass to subsequent train invocations
+fmla <- as.formula(paste("classe ~ ", paste(vnames, collapse= " + ")))
 ```
 
 # Appendix 4: R Code for Figure 2
-```{r Figure2, eval=FALSE}
+
+```r
+dacc=data.frame(method=methods, accuracy=acc)
+ggplot(data=dacc, aes(x=method,y=accuracy))+
+  geom_bar(stat="identity",fill="red", alpha=0.5)+
+  ylim(0,1)+
+  labs(title = "Figure 2: Accuracy Measures for Different Tree Models")
 ```
